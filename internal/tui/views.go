@@ -1627,11 +1627,9 @@ func (a *App) renderPrompt(row int) {
 	for x := 1; x < a.W-1; x++ {
 		a.screen.Set(x, row, ' ', t.Base)
 	}
-	x := 2
-	x = a.screen.Text(x, row, p.Label+": ", t.Accent)
-	valStart := x
+	valStart := a.screen.Text(2, row, p.Label+": ", t.Accent)
 	text := p.text()
-	x = a.screen.Text(x, row, Truncate(text, a.W-valStart-4), t.Base)
+	a.screen.Text(valStart, row, Truncate(text, a.W-valStart-4), t.Base)
 	if p.Hint != "" {
 		hint := Truncate(p.Hint, maxInt(0, a.W-valStart-TextWidth(text)-6))
 		if hint != "" {
