@@ -1,8 +1,11 @@
 BINARY := cli-proxy
 GOFLAGS ?=
 LDFLAGS := -s -w
+VERSION := $(shell sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+RELDIR := dist/$(BINARY)_$(VERSION)
 
-.PHONY: all build slim test vet fmt run clean cross
+.PHONY: all build slim test vet fmt run clean cross release
 
 all: build
 
@@ -32,6 +35,27 @@ cross:
 	GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-darwin-arm64 .
 	GOOS=darwin  GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-darwin-amd64 .
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-windows-amd64.exe .
+
+# Build the archives attached to a GitHub release, plus checksums.
+release: clean
+	rm -rf $(RELDIR)
+	@for target in $(PLATFORMS); do \
+		os=$${target%/*}; arch=$${target#*/}; \
+		dir=$(RELDIR)/$$os-$$arch; \
+		mkdir -p $$dir; \
+		ext=""; [ "$$os" = windows ] && ext=".exe"; \
+		echo "building $$os/$$arch"; \
+		GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags="$(LDFLAGS)" -o $$dir/$(BINARY)$$ext . || exit 1; \
+		cp README.md LICENSE $$dir/; \
+		if [ "$$os" = windows ]; then \
+			(cd $$dir && zip -q ../$(BINARY)_$(VERSION)_$${os}_$${arch}.zip $(BINARY).exe README.md LICENSE); \
+		else \
+			tar -czf $(RELDIR)/$(BINARY)_$(VERSION)_$${os}_$${arch}.tar.gz -C $$dir .; \
+		fi; \
+		rm -rf $$dir; \
+	done
+	@cd $(RELDIR) && if command -v shasum >/dev/null 2>&1; then shasum -a 256 * > checksums.txt; else sha256sum * > checksums.txt; fi
+	@echo; echo "release artifacts in $(RELDIR):"; ls -1 $(RELDIR)
 
 clean:
 	rm -f $(BINARY)
