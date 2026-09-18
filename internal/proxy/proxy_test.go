@@ -730,28 +730,35 @@ func poolWith(p *Proxy) *x509.CertPool {
 
 func TestDisplayAddrCollapsesWildcard(t *testing.T) {
 	h := newHarness(t, nil)
-	// The harness binds 127.0.0.1:0, so the concrete address must be preserved.
 	if got := h.px.DisplayAddr(); !strings.HasPrefix(got, "127.0.0.1:") {
 		t.Fatalf("DisplayAddr() = %q, want the concrete address", got)
 	}
 
-	_, port, err := net.SplitHostPort(h.px.Addr())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Every rebind asks for an ephemeral port. Reusing the port the loopback
+	// listener still holds fails on Linux, where a wildcard bind is rejected
+	// while a specific address owns that port.
 	for _, wildcard := range []string{"0.0.0.0", "::", ""} {
-		if err := h.px.Rebind(net.JoinHostPort(wildcard, port)); err != nil {
-			// "" needs a bare port; retry with the colon form.
-			if err := h.px.Rebind(":" + port); err != nil {
-				t.Fatalf("rebind to wildcard %q: %v", wildcard, err)
-			}
+		if err := h.px.Rebind(net.JoinHostPort(wildcard, "0")); err != nil {
+			t.Fatalf("rebind to wildcard %q: %v", wildcard, err)
 		}
-		if got, want := h.px.DisplayAddr(), "*:"+port; got != want {
-			t.Fatalf("DisplayAddr() for %q = %q, want %q", wildcard, got, want)
+		got := h.px.DisplayAddr()
+		if !strings.HasPrefix(got, "*:") {
+			t.Fatalf("DisplayAddr() for %q = %q, want a *:port form", wildcard, got)
 		}
-		if err := h.px.Rebind("127.0.0.1:" + port); err != nil {
-			t.Fatalf("rebind back: %v", err)
+		_, port, err := net.SplitHostPort(h.px.Addr())
+		if err != nil {
+			t.Fatalf("Addr() = %q: %v", h.px.Addr(), err)
 		}
+		if want := "*:" + port; got != want {
+			t.Fatalf("DisplayAddr() = %q, want %q", got, want)
+		}
+	}
+
+	if err := h.px.Rebind("127.0.0.1:0"); err != nil {
+		t.Fatalf("rebind back to loopback: %v", err)
+	}
+	if got := h.px.DisplayAddr(); !strings.HasPrefix(got, "127.0.0.1:") {
+		t.Fatalf("DisplayAddr() = %q after returning to loopback", got)
 	}
 }
 
