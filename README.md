@@ -54,6 +54,10 @@ dependencies** — standard library only.
 
 ## Install
 
+```sh
+brew install sadgoodman/tap/cli-proxy
+```
+
 Download a prebuilt archive from the [latest release][rel], or build from
 source with Go 1.25+.
 

@@ -2,7 +2,7 @@ BINARY := cli-proxy
 GOFLAGS ?=
 LDFLAGS := -s -w
 VERSION := $(shell sed -n 's/^const version = "\(.*\)"/\1/p' main.go)
-PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64
+PLATFORMS := linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64
 RELDIR := dist/$(BINARY)_$(VERSION)
 
 .PHONY: all build slim test vet fmt run clean cross release
@@ -37,6 +37,8 @@ cross:
 	GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="$(LDFLAGS)" -o dist/$(BINARY)-windows-amd64.exe .
 
 # Build the archives attached to a GitHub release, plus checksums.
+# CI uses GoReleaser for this; the target is kept so a release can be reproduced
+# locally without installing anything.
 release: clean
 	rm -rf $(RELDIR)
 	@for target in $(PLATFORMS); do \

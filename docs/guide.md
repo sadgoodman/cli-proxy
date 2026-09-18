@@ -70,6 +70,30 @@ dependencies** — the Go standard library only.
   keyboard-driven, plus the mouse: hovering highlights rows, tabs and buttons,
   clicking selects. Menu items switch with `←`/`→` (or `Tab`).
 
+## Installing
+
+Homebrew is the shortest route:
+
+```sh
+brew install sadgoodman/tap/cli-proxy
+```
+
+Otherwise download a prebuilt archive from the [latest release][rel]:
+
+| Platform | Asset |
+|---|---|
+| Linux x86-64 | `cli-proxy_<version>_linux_amd64.tar.gz` |
+| Linux arm64 | `cli-proxy_<version>_linux_arm64.tar.gz` |
+| macOS Apple Silicon | `cli-proxy_<version>_darwin_arm64.tar.gz` |
+| macOS Intel | `cli-proxy_<version>_darwin_amd64.tar.gz` |
+| Windows x86-64 | `cli-proxy_<version>_windows_amd64.zip` |
+
+`checksums.txt` in the same release carries the SHA-256 of every archive.
+
+The Homebrew formula updates itself: [`sadgoodman/homebrew-tap`][tap] is checked
+against the latest release every hour. To pick a release up immediately, run the
+**Update formulae** workflow from the Actions tab.
+
 ## Building
 
 ```sh
@@ -556,7 +580,7 @@ make cross     # build for every supported platform
 
 1. it checks the version in `main.go` against the tag and fails if they
    disagree;
-2. it builds the archives (`make release`), verifies the checksums and runs the
+2. it builds the archives with GoReleaser (`goreleaser release`), verifies the checksums and runs the
    built Linux binary;
 3. it publishes a GitHub Release with the archives, `checksums.txt` and the
    list of commits since the previous tag.
