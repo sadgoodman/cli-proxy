@@ -121,6 +121,10 @@ jobs:
           ## Изменения
           PREAMBLE
 
+          # The template uses a placeholder so the heredoc can stay quoted.
+          sed "s/<версия>/${version}/g" /tmp/notes.md > /tmp/notes.fixed
+          mv /tmp/notes.fixed /tmp/notes.md
+
           previous=$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)
           if [ -n "$previous" ]; then
             echo "listing commits ${previous}..${tag}" >&2
