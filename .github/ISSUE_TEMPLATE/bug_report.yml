@@ -1,0 +1,75 @@
+name: Bug report
+description: Something does not work the way it should
+title: "bug: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two things make a bug report much easier to act
+        on: the exact version you ran, and whether the traffic was plain HTTP
+        or HTTPS.
+
+        **Redact before pasting.** Captured requests often contain tokens,
+        cookies and personal data. Remove them.
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `cli-proxy -version`
+      placeholder: cli-proxy 0.1.1
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      description: Operating system and architecture, and the terminal if the problem is in the UI
+      placeholder: macOS 15.2 arm64, Terminal.app
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scheme
+    attributes:
+      label: Traffic
+      options:
+        - Plain HTTP
+        - HTTPS (intercepted)
+        - HTTPS (tunnel mode, -tunnel)
+        - Both
+        - No traffic involved (UI or startup problem)
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to reproduce
+      description: Commands, configuration and the smallest set of steps that shows the problem
+      placeholder: |
+        1. ./cli-proxy -addr 127.0.0.1:8080
+        2. curl -x http://127.0.0.1:8080 http://example.com
+        3. ...
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: Copy them from the Log tab, or from the terminal if the program failed to start
+      render: text
+    validations:
+      required: false

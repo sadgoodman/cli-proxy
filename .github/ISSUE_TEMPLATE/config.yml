@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security problem
+    url: https://github.com/sadgoodman/cli-proxy/security/advisories/new
+    about: Report a vulnerability privately, not as a public issue.
+  - name: Question or idea
+    url: https://github.com/sadgoodman/cli-proxy/discussions
+    about: Ask how something works, or float an idea before opening an issue.
+  - name: Full documentation
+    url: https://github.com/sadgoodman/cli-proxy/blob/master/docs/guide.md
+    about: Flags, rule DSL, filter syntax, key bindings and troubleshooting.

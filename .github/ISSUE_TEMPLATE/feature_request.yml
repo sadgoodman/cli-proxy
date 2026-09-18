@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest something the tool should do
+title: "feat: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project optimises for being small: one static binary, standard
+        library only, a terminal interface you can drive entirely from the
+        keyboard. Suggestions that fit that shape are the easiest to accept.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What are you trying to do that is awkward or impossible today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+      description: A rough sketch is enough. If it involves the UI, say which key or tab it would live on.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: How do you work around it now, and what did you consider instead?
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Fit
+      options:
+        - label: This can be done with the Go standard library alone
+          required: false
+        - label: I am willing to open a pull request for it
+          required: false

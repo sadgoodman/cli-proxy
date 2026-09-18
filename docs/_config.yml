@@ -1,0 +1,9 @@
+title: cli-proxy
+description: A lightweight CLI proxy for watching and rewriting HTTP and HTTPS traffic
+theme: jekyll-theme-cayman
+show_downloads: true
+
+# Keeps the links between the markdown pages working once Jekyll has rendered
+# them, instead of pointing at the raw .md files.
+plugins:
+  - jekyll-relative-links

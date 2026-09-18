@@ -1,0 +1,26 @@
+version: 2
+
+updates:
+  # The tool itself has no dependencies, so the interesting updates are the
+  # actions used by the workflows.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions:
+        patterns: ['*']
+
+  # Keeps working if a dependency is ever added to go.mod.
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
