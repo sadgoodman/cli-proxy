@@ -30,3 +30,17 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# cli-proxy build output
+/cli-proxy
+/cli-proxy.exe
+/dist/
+
+# Never commit generated material: the interception CA, saved rules and
+# filters, and the system proxy recovery copy.
+*.pem
+*.crt
+*.key
+rules.json
+filters.json
+sysproxy-backup.json
