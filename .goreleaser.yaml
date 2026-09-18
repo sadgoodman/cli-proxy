@@ -50,12 +50,24 @@ snapshot:
 changelog:
   use: git
   sort: asc
+  # Commit hash is noise; the subject already links through to the commit.
+  format: '{{ .Message }}'
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))?!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))?!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
   filters:
     exclude:
       - '^docs:'
       - '^ci:'
       - '^test:'
       - '^chore'
+      - '^release \d'
 
 release:
   draft: false
