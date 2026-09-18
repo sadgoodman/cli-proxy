@@ -23,7 +23,7 @@ import (
 	"cliproxy/internal/tui"
 )
 
-const version = "0.1.0"
+const version = "0.1.1"
 
 func main() {
 	home := ca.Dir()
