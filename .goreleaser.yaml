@@ -1,0 +1,90 @@
+version: 2
+
+project_name: cli-proxy
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: cli-proxy
+    main: .
+    binary: cli-proxy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+
+archives:
+  - id: release
+    # Prebuilt archives keep the name the README documents:
+    # cli-proxy_<version>_<os>_<arch>.tar.gz, and .zip on Windows.
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: '{{ incpatch .Version }}-snapshot'
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^ci:'
+      - '^test:'
+      - '^chore'
+
+release:
+  draft: false
+  prerelease: auto
+  name_template: 'cli-proxy {{ .Tag }}'
+  header: |
+    Статический бинарник без внешних зависимостей — только стандартная
+    библиотека Go. В каждом архиве программа, `README.md` и `LICENSE`;
+    контрольные суммы — в `checksums.txt`.
+
+    | Платформа | Файл |
+    |---|---|
+    | Linux x86-64 | `cli-proxy_{{ .Version }}_linux_amd64.tar.gz` |
+    | Linux arm64 | `cli-proxy_{{ .Version }}_linux_arm64.tar.gz` |
+    | macOS Apple Silicon | `cli-proxy_{{ .Version }}_darwin_arm64.tar.gz` |
+    | macOS Intel | `cli-proxy_{{ .Version }}_darwin_amd64.tar.gz` |
+    | Windows x86-64 | `cli-proxy_{{ .Version }}_windows_amd64.zip` |
+
+    ```sh
+    brew install sadgoodman/tap/cli-proxy
+    ```
+
+    ```sh
+    tar -xzf cli-proxy_{{ .Version }}_darwin_arm64.tar.gz
+    ./cli-proxy -install-cert     # довериться корневому сертификату
+    ./cli-proxy -system-proxy     # направить системный прокси сюда
+    ```
+  footer: |
+    **Полное руководство:** [docs/guide.md](https://github.com/sadgoodman/cli-proxy/blob/master/docs/guide.md)
+    (есть также [русская версия](https://github.com/sadgoodman/cli-proxy/blob/master/docs/guide.ru.md)).
+
+    Установка одной командой: `brew install sadgoodman/tap/cli-proxy`.

@@ -1,8 +1,7 @@
 name: Release
 
-# A version tag publishes a release. The manual trigger runs the same build but
-# stops before publishing and keeps the archives as workflow artifacts, which is
-# the safe way to check the pipeline without creating a release.
+# A version tag publishes a release with GoReleaser. The manual trigger runs the
+# same verification and a snapshot build, but stops before publishing.
 on:
   push:
     tags: ['v*']
@@ -16,8 +15,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: build and publish
+  verify:
+    name: verify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -53,91 +52,71 @@ jobs:
             exit 1
           fi
 
-      - name: build the archives
-        run: make release
+      - name: test
+        run: go test ./... -count=1
+
+      - name: check the GoReleaser configuration
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: check
+
+      - name: build the archives without publishing
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --snapshot --clean
 
       - name: smoke test the linux build
         shell: bash
         run: |
           set -e
-          version='${{ steps.version.outputs.value }}'
+          archive=$(ls dist/cli-proxy_*_linux_amd64.tar.gz | head -1)
+          echo "testing $archive"
           tmp=$(mktemp -d)
-          tar -xzf "dist/cli-proxy_${version}/cli-proxy_${version}_linux_amd64.tar.gz" -C "$tmp"
-          got=$("$tmp/cli-proxy" -version)
-          echo "binary reports: $got"
-          if [ "$got" != "cli-proxy $version" ]; then
-            echo "::error::unexpected version output: $got"
-            exit 1
-          fi
-          "$tmp/cli-proxy" -h >/dev/null
+          tar -xzf "$archive" -C "$tmp"
           test -f "$tmp/README.md"
           test -f "$tmp/LICENSE"
+          "$tmp/cli-proxy" -h >/dev/null
+          "$tmp/cli-proxy" -version
 
       - name: verify the checksums
         shell: bash
-        run: |
-          cd "dist/cli-proxy_${{ steps.version.outputs.value }}"
-          sha256sum -c checksums.txt
+        run: cd dist && sha256sum -c checksums.txt
 
-      - name: keep the archives as workflow artifacts
+      - name: keep the snapshot archives
         uses: actions/upload-artifact@v7
         with:
-          name: cli-proxy-archives
-          path: dist/cli-proxy_*/
+          name: cli-proxy-snapshot
+          path: |
+            dist/cli-proxy_*.tar.gz
+            dist/cli-proxy_*.zip
+            dist/checksums.txt
           if-no-files-found: error
           retention-days: 14
 
+  release:
+    name: publish
+    needs: verify
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          check-latest: true
+
       - name: publish the release
-        if: startsWith(github.ref, 'refs/tags/')
-        shell: bash
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME}"
-          version='${{ steps.version.outputs.value }}'
-          dir="dist/cli-proxy_${version}"
-
-          # A short preamble, then the commits since the previous tag.
-          cat > /tmp/notes.md <<'PREAMBLE'
-          Статический бинарник без внешних зависимостей — только стандартная
-          библиотека Go. В каждом архиве программа, `README.md` и `LICENSE`;
-          контрольные суммы — в `checksums.txt`.
-
-          | Платформа | Файл |
-          |---|---|
-          | Linux x86-64 | `cli-proxy_<версия>_linux_amd64.tar.gz` |
-          | Linux arm64 | `cli-proxy_<версия>_linux_arm64.tar.gz` |
-          | macOS Apple Silicon | `cli-proxy_<версия>_darwin_arm64.tar.gz` |
-          | macOS Intel | `cli-proxy_<версия>_darwin_amd64.tar.gz` |
-          | Windows x86-64 | `cli-proxy_<версия>_windows_amd64.zip` |
-
-          ```sh
-          tar -xzf cli-proxy_<версия>_darwin_arm64.tar.gz
-          ./cli-proxy -install-cert     # довериться корневому сертификату
-          ./cli-proxy -system-proxy     # направить системный прокси сюда
-          ```
-
-          ## Изменения
-          PREAMBLE
-
-          # The template uses a placeholder so the heredoc can stay quoted.
-          sed "s/<версия>/${version}/g" /tmp/notes.md > /tmp/notes.fixed
-          mv /tmp/notes.fixed /tmp/notes.md
-
-          previous=$(git describe --tags --abbrev=0 "${tag}^" 2>/dev/null || true)
-          if [ -n "$previous" ]; then
-            echo "listing commits ${previous}..${tag}" >&2
-            git log --no-merges --pretty='- %s' "${previous}..${tag}" >> /tmp/notes.md
-          else
-            git log --no-merges --pretty='- %s' "${tag}" >> /tmp/notes.md
-          fi
-          echo >> /tmp/notes.md
-
-          gh release create "$tag" \
-            --title "cli-proxy $tag" \
-            --notes-file /tmp/notes.md \
-            --verify-tag \
-            "${dir}"/cli-proxy_"${version}"_*.tar.gz \
-            "${dir}"/cli-proxy_"${version}"_*.zip \
-            "${dir}"/checksums.txt
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

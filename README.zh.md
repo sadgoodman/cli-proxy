@@ -47,6 +47,10 @@
 
 ## 安装
 
+```sh
+brew install sadgoodman/tap/cli-proxy
+```
+
 从[最新发布][rel]下载预编译压缩包，或使用 Go 1.25+ 从源码构建。
 
 | 平台 | 资源文件 |

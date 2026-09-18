@@ -59,6 +59,10 @@ estático, **sin dependencias externas** — solo la biblioteca estándar.
 
 ## Instalación
 
+```sh
+brew install sadgoodman/tap/cli-proxy
+```
+
 Descarga un archivo precompilado desde la [última versión][rel], o compílalo
 desde el código fuente con Go 1.25+.
 

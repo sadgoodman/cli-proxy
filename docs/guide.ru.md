@@ -66,6 +66,30 @@
   клавиатурный, плюс мышь: наведение подсвечивает строки, вкладки и кнопки,
   клик выбирает. Пункты меню переключаются стрелками `←`/`→` (или `Tab`).
 
+## Установка
+
+Через Homebrew — короче всего:
+
+```sh
+brew install sadgoodman/tap/cli-proxy
+```
+
+Или скачайте готовый архив из [последнего релиза][rel]:
+
+| Платформа | Файл |
+|---|---|
+| Linux x86-64 | `cli-proxy_<версия>_linux_amd64.tar.gz` |
+| Linux arm64 | `cli-proxy_<версия>_linux_arm64.tar.gz` |
+| macOS Apple Silicon | `cli-proxy_<версия>_darwin_arm64.tar.gz` |
+| macOS Intel | `cli-proxy_<версия>_darwin_amd64.tar.gz` |
+| Windows x86-64 | `cli-proxy_<версия>_windows_amd64.zip` |
+
+В том же релизе лежит `checksums.txt` с SHA-256 каждого архива.
+
+Формула Homebrew обновляется сама: репозиторий [`sadgoodman/homebrew-tap`][tap]
+раз в час сверяется с последним релизом. Если нужно сразу после выпуска,
+запустите workflow **Update formulae** во вкладке Actions.
+
 ## Сборка
 
 ```sh
@@ -541,7 +565,7 @@ make cross     # собрать под все поддерживаемые пл�
 `.github/workflows/release.yml` реагирует на тег вида `v*`:
 
 1. сверяет версию из `main.go` с тегом и падает, если они разошлись;
-2. собирает архивы (`make release`), проверяет контрольные суммы и запускает
+2. собирает архивы через GoReleaser (`goreleaser release`), проверяет контрольные суммы и запускает
    собранный linux-бинарник;
 3. публикует GitHub Release с архивами, `checksums.txt` и списком коммитов
    с прошлого тега.
