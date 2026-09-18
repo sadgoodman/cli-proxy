@@ -1,5 +1,9 @@
 # cli-proxy
 
+[![CI](https://github.com/sadgoodman/cli-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/sadgoodman/cli-proxy/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sadgoodman/cli-proxy)](https://github.com/sadgoodman/cli-proxy/releases/latest)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Максимально лёгкий CLI-прокси для перехвата, просмотра и подмены HTTP/HTTPS-трафика
 в реальном времени. Один статический бинарник, **ноль внешних зависимостей** —
 только стандартная библиотека Go.
@@ -504,6 +508,44 @@ internal/tui/
   app.go                   состояние, цикл событий, клавиатура и мышь
   views.go                 отрисовка всех экранов
 ```
+
+## Разработка
+
+```sh
+make build     # собрать
+make test      # прогнать тесты
+make vet       # go vet
+make fmt       # gofmt
+make cross     # собрать под все поддерживаемые платформы
+```
+
+### Непрерывная интеграция
+
+`.github/workflows/ci.yml` на каждый push в `main` и на pull request:
+
+* `go vet`, `gofmt -l` и `go test ./...` на **Linux, macOS и Windows**;
+* отдельный прогон с `-race` на Linux;
+* кросс-компиляция под 7 целей (linux/amd64, linux/arm64, darwin/amd64,
+  darwin/arm64, windows/amd64, windows/arm64, freebsd/amd64).
+
+### Как выпустить релиз
+
+`.github/workflows/release.yml` реагирует на тег вида `v*`:
+
+1. сверяет версию из `main.go` с тегом и падает, если они разошлись;
+2. собирает архивы (`make release`), проверяет контрольные суммы и запускает
+   собранный linux-бинарник;
+3. публикует GitHub Release с архивами, `checksums.txt` и списком коммитов
+   с прошлого тега.
+
+```sh
+# поднять версию в main.go, закоммитить, затем:
+git tag -a v0.2.0 -m "cli-proxy v0.2.0"
+git push origin v0.2.0
+```
+
+Workflow можно запустить вручную из вкладки Actions — тогда он соберёт архивы
+и положит их в артефакты запуска, ничего не публикуя.
 
 ## Тесты
 
