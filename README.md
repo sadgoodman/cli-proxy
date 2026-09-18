@@ -88,6 +88,9 @@ The full reference — every flag, the rule DSL, filter syntax, key bindings,
 certificate and system proxy handling, and the project layout — lives in
 **[docs/guide.md](docs/guide.md)** (also in [Russian](docs/guide.ru.md)).
 
+Both versions are published as a site at
+**<https://sadgoodman.github.io/cli-proxy/>**.
+
 ## Status
 
 `go test ./...` covers end-to-end HTTP and HTTPS interception, every rule
