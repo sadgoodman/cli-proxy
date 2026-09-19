@@ -58,8 +58,15 @@ dependencies** — standard library only.
 brew install sadgoodman/tap/cli-proxy
 ```
 
-Download a prebuilt archive from the [latest release][rel], or build from
-source with Go 1.25+.
+On Windows, with [Scoop](https://scoop.sh) — no administrator rights needed:
+
+```powershell
+scoop bucket add sadgoodman https://github.com/sadgoodman/scoop-bucket
+scoop install cli-proxy
+```
+
+Anywhere else, download a prebuilt archive from the [latest release][rel], or
+build from source with Go 1.25+.
 
 | Platform | Asset |
 |---|---|
