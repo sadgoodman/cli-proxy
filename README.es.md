@@ -63,8 +63,15 @@ estático, **sin dependencias externas** — solo la biblioteca estándar.
 brew install sadgoodman/tap/cli-proxy
 ```
 
-Descarga un archivo precompilado desde la [última versión][rel], o compílalo
-desde el código fuente con Go 1.25+.
+En Windows, con [Scoop](https://scoop.sh) — no hace falta ser administrador:
+
+```powershell
+scoop bucket add sadgoodman https://github.com/sadgoodman/scoop-bucket
+scoop install cli-proxy
+```
+
+En cualquier otro caso, descarga un archivo precompilado desde la
+[última versión][rel] o compílalo desde el código fuente con Go 1.25+.
 
 | Plataforma | Artefacto |
 |---|---|

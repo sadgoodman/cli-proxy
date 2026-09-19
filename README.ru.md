@@ -57,8 +57,15 @@
 brew install sadgoodman/tap/cli-proxy
 ```
 
-Скачайте готовый архив из [последнего релиза][rel] или соберите из исходников
-(нужен Go 1.25+).
+На Windows — через [Scoop](https://scoop.sh), права администратора не нужны:
+
+```powershell
+scoop bucket add sadgoodman https://github.com/sadgoodman/scoop-bucket
+scoop install cli-proxy
+```
+
+В остальных случаях скачайте готовый архив из [последнего релиза][rel] или
+соберите из исходников (нужен Go 1.25+).
 
 | Платформа | Файл |
 |---|---|

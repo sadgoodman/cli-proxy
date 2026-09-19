@@ -72,13 +72,35 @@ dependencies** — the Go standard library only.
 
 ## Installing
 
-Homebrew is the shortest route:
+`cli-proxy` is a single static binary, so there is no installer to run and
+nothing to uninstall. Pick whichever package manager you already use, or take
+the archive and put the binary wherever you like.
+
+### macOS and Linux
 
 ```sh
 brew install sadgoodman/tap/cli-proxy
 ```
 
-Otherwise download a prebuilt archive from the [latest release][rel]:
+### Windows
+
+Scoop needs no administrator rights:
+
+```powershell
+scoop bucket add sadgoodman https://github.com/sadgoodman/scoop-bucket
+scoop install cli-proxy
+```
+
+Then `scoop update cli-proxy` and `scoop uninstall cli-proxy` manage it. The
+manifest covers both x86-64 and arm64 Windows.
+
+The first time the proxy binds to `0.0.0.0`, Windows Defender Firewall asks
+whether to allow it on private networks — say yes if you want to intercept
+traffic from a phone or another machine.
+
+### Everything else
+
+Download a prebuilt archive from the [latest release][rel]:
 
 | Platform | Asset |
 |---|---|
@@ -90,9 +112,21 @@ Otherwise download a prebuilt archive from the [latest release][rel]:
 
 `checksums.txt` in the same release carries the SHA-256 of every archive.
 
-The Homebrew formula updates itself: [`sadgoodman/homebrew-tap`][tap] is checked
-against the latest release every hour. To pick a release up immediately, run the
-**Update formulae** workflow from the Actions tab.
+Unpack it and put `cli-proxy` (or `cli-proxy.exe`) somewhere on your `PATH`.
+The archives are plain files, not installers: no registry entries, no services.
+
+### Keeping the packages current
+
+Both the Homebrew formula and the Scoop manifest update themselves.
+[`sadgoodman/homebrew-tap`][tap] and [`sadgoodman/scoop-bucket`][scoop] are
+checked against the latest release every hour. To pick a release up
+immediately, run the **Update formulae** or **Update manifests** workflow from
+the corresponding repository's Actions tab.
+
+There is no Chocolatey package and no winget manifest yet. Chocolatey would
+require administrator rights on every install and a moderated community review,
+which buys little for a single binary; winget needs the manifests merged into
+`microsoft/winget-pkgs` first.
 
 ## Building
 
@@ -615,3 +649,7 @@ on the fly (including refusing a busy port and preserving flows), parsing
 keyboard escape sequences and SGR mouse events, the geometry of the rounded
 tables, full rendering of every screen, button availability at any width, and
 mouse handling.
+
+[rel]: https://github.com/sadgoodman/cli-proxy/releases/latest
+[tap]: https://github.com/sadgoodman/homebrew-tap
+[scoop]: https://github.com/sadgoodman/scoop-bucket

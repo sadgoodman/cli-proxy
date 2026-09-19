@@ -51,7 +51,14 @@
 brew install sadgoodman/tap/cli-proxy
 ```
 
-从[最新发布][rel]下载预编译压缩包，或使用 Go 1.25+ 从源码构建。
+Windows 上使用 [Scoop](https://scoop.sh)，无需管理员权限：
+
+```powershell
+scoop bucket add sadgoodman https://github.com/sadgoodman/scoop-bucket
+scoop install cli-proxy
+```
+
+其他情况请从[最新发布][rel]下载预编译压缩包，或使用 Go 1.25+ 从源码构建。
 
 | 平台 | 资源文件 |
 |---|---|
