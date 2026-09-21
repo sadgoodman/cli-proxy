@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"bufio"
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -10,8 +12,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -516,16 +520,25 @@ func TestGlobalBreakpointToggles(t *testing.T) {
 }
 
 func TestTunnelMode(t *testing.T) {
-	h := newHarness(t, func(cfg *Config) { cfg.TunnelOnly = true })
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly = true
+		cfg.CA = nil
+		cfg.InsecureUpstream = false
+	})
 	// Without interception the client sees the origin certificate itself, so
 	// it must not expect our CA to have signed anything.
+	pool := x509.NewCertPool()
+	pool.AddCert(h.secure.Certificate())
 	tunnelClient := &http.Client{
 		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
-			Proxy:           http.ProxyURL(h.proxyURL),
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			Proxy:             http.ProxyURL(h.proxyURL),
+			TLSClientConfig:   &tls.Config{RootCAs: pool},
+			DisableKeepAlives: true,
 		},
 	}
+	defer tunnelClient.CloseIdleConnections()
+	addRule(t, h.rules, "* .* :: block=403")
 	resp, err := tunnelClient.Get(h.secure.URL + "/tunnelled")
 	if err != nil {
 		t.Fatalf("GET through tunnel: %v", err)
@@ -534,15 +547,252 @@ func TestTunnelMode(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
+	if resp.TLS == nil || !bytes.Equal(resp.TLS.PeerCertificates[0].Raw, h.secure.Certificate().Raw) {
+		t.Fatal("client did not receive the original server certificate")
+	}
+	if _, err := io.ReadAll(resp.Body); err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
 	flows := h.waitFlows(1)
 	found := false
 	for _, f := range flows {
 		if f.Method == "CONNECT" && f.HasTag("tunnel") {
 			found = true
+			if f.State != core.StateComplete || len(f.ReqBody) != 0 || len(f.RespBody) != 0 {
+				t.Fatalf("unexpected tunnel capture: %+v", f)
+			}
 		}
 	}
 	if !found {
 		t.Fatalf("tunnel flow not recorded: %+v", flows)
+	}
+	if len(flows) != 1 {
+		t.Fatalf("HTTPS requests should not be captured: %+v", flows)
+	}
+	h.rules.Clear()
+	plainResp, _ := h.get(h.origin.URL + "/plain")
+	if plainResp.StatusCode != http.StatusOK {
+		t.Fatalf("plain HTTP status = %d", plainResp.StatusCode)
+	}
+}
+
+func TestChangeTLSModeKeepsExistingConnections(t *testing.T) {
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly, cfg.CA = true, nil
+		cfg.CAPath = t.TempDir()
+	})
+	pool := x509.NewCertPool()
+	pool.AddCert(h.secure.Certificate())
+	tunnelTransport := &http.Transport{
+		Proxy: http.ProxyURL(h.proxyURL), TLSClientConfig: &tls.Config{RootCAs: pool},
+	}
+	t.Cleanup(tunnelTransport.CloseIdleConnections)
+	tunnelClient := &http.Client{Transport: tunnelTransport, Timeout: 5 * time.Second}
+	check := func(client *http.Client, cert *x509.Certificate) {
+		t.Helper()
+		resp, err := client.Get(h.secure.URL + "/mode")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if _, err := io.ReadAll(resp.Body); err != nil {
+			t.Fatal(err)
+		}
+		if resp.TLS == nil || !bytes.Equal(resp.TLS.PeerCertificates[0].Raw, cert.Raw) {
+			t.Fatal("connection used the wrong TLS mode")
+		}
+	}
+	check(tunnelClient, h.secure.Certificate())
+	if err := h.px.SetTunnelOnly(false); err != nil {
+		t.Fatal(err)
+	}
+	if h.px.Mode() != "mitm" || h.px.CA() == nil {
+		t.Fatal("interception did not initialize its CA")
+	}
+	check(tunnelClient, h.secure.Certificate()) // existing tunnel survives
+	mitmTransport := &http.Transport{
+		Proxy: http.ProxyURL(h.proxyURL), TLSClientConfig: &tls.Config{RootCAs: poolWith(h.px)},
+	}
+	t.Cleanup(mitmTransport.CloseIdleConnections)
+	mitmClient := &http.Client{Transport: mitmTransport, Timeout: 5 * time.Second}
+	leaf, err := h.px.CA().Leaf("127.0.0.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(mitmClient, leaf.Leaf)
+	if err := h.px.SetTunnelOnly(true); err != nil {
+		t.Fatal(err)
+	}
+	check(mitmClient, leaf.Leaf) // existing intercepted connection survives
+	tunnelTransport.CloseIdleConnections()
+	check(tunnelClient, h.secure.Certificate()) // new connection is opaque again
+}
+
+func TestEnableTLSFailureKeepsTunnelMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := New(Config{TunnelOnly: true, CAPath: path})
+	if err := p.SetTunnelOnly(false); err == nil {
+		t.Fatal("expected a CA initialization error")
+	}
+	if p.Mode() != "tunnel" || p.CA() != nil {
+		t.Fatal("failed initialization changed the mode")
+	}
+}
+
+func TestTLSModeConcurrentLocalRequests(t *testing.T) {
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly, cfg.CA = true, nil
+		cfg.CAPath = t.TempDir()
+	})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for range 30 {
+			for _, path := range []string{"/", "/status", "/cert"} {
+				w := httptest.NewRecorder()
+				h.px.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
+				if w.Code != http.StatusOK && w.Code != http.StatusNotFound {
+					t.Errorf("%s returned %d", path, w.Code)
+				}
+			}
+		}
+	}()
+	defer wg.Wait()
+	for i := range 30 {
+		if err := h.px.SetTunnelOnly(i%2 != 0); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestTunnelRawCONNECT(t *testing.T) {
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly, cfg.CA = true, nil
+	})
+	for _, serverFirst := range []bool{true, false} {
+		name := "buffered-client-data"
+		if serverFirst {
+			name = "server-first"
+		}
+		t.Run(name, func(t *testing.T) {
+			ln, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer ln.Close()
+			go func() {
+				conn, err := ln.Accept()
+				if err != nil {
+					return
+				}
+				defer conn.Close()
+				_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+				if serverFirst {
+					_, _ = io.WriteString(conn, "hello\n")
+				} else {
+					_, _ = io.Copy(conn, conn)
+				}
+			}()
+			client, err := net.DialTimeout("tcp", h.px.Addr(), 5*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer client.Close()
+			_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+			request := "CONNECT " + ln.Addr().String() + " HTTP/1.1\r\nHost: " + ln.Addr().String() + "\r\n\r\n"
+			if !serverFirst {
+				request += "hello\n"
+			}
+			if _, err := io.WriteString(client, request); err != nil {
+				t.Fatal(err)
+			}
+			reader := bufio.NewReader(client)
+			resp, err := http.ReadResponse(reader, &http.Request{Method: http.MethodConnect})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("CONNECT status = %d", resp.StatusCode)
+			}
+			if got, err := reader.ReadString('\n'); err != nil || got != "hello\n" {
+				t.Fatalf("tunnel data = %q, err = %v", got, err)
+			}
+		})
+	}
+}
+
+func TestTunnelUnreachableOrigin(t *testing.T) {
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly, cfg.CA = true, nil
+	})
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := ln.Addr().String()
+	ln.Close()
+	client, err := net.DialTimeout("tcp", h.px.Addr(), 5*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	_ = client.SetDeadline(time.Now().Add(5 * time.Second))
+	_, _ = io.WriteString(client, "CONNECT "+target+" HTTP/1.1\r\nHost: "+target+"\r\n\r\n")
+	resp, err := http.ReadResponse(bufio.NewReader(client), &http.Request{Method: http.MethodConnect})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("CONNECT status = %d, want 502", resp.StatusCode)
+	}
+	flows := h.waitFlows(1)
+	if len(flows) != 1 || flows[0].State != core.StateError || flows[0].Status != 502 {
+		t.Fatalf("expected failed tunnel flow: %+v", flows)
+	}
+}
+
+func TestTunnelLocalPagesWithoutCA(t *testing.T) {
+	h := newHarness(t, func(cfg *Config) {
+		cfg.TunnelOnly, cfg.CA = true, nil
+	})
+	for _, path := range []string{"/", "/help", "/status", "/cert", "/ssl", "/cert.der", "/ca.mobileconfig"} {
+		t.Run(path, func(t *testing.T) {
+			resp, err := http.Get("http://" + h.px.Addr() + path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			body, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := http.StatusNotFound
+			switch path {
+			case "/", "/help":
+				want = http.StatusOK
+				if !strings.Contains(string(body), "No CA certificate installation is required") || strings.Contains(string(body), "href=\"/cert\"") {
+					t.Fatalf("unexpected tunnel instructions: %s", body)
+				}
+			case "/status":
+				want = http.StatusOK
+				var status map[string]any
+				if err := json.Unmarshal(body, &status); err != nil {
+					t.Fatal(err)
+				}
+				if status["mode"] != "tunnel" || status["ca_fingerprint"] != "" {
+					t.Fatalf("unexpected status: %s", body)
+				}
+			}
+			if resp.StatusCode != want {
+				t.Fatalf("status = %d, want %d", resp.StatusCode, want)
+			}
+		})
 	}
 }
 

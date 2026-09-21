@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
+	"html"
 	"net"
 	"net/http"
 	"sort"
@@ -84,6 +85,14 @@ func (p *Proxy) serveLocal(w http.ResponseWriter, r *http.Request, origin string
 		path = "/"
 	}
 	p.cfg.Log.Addf("%s request %s %s from %s", origin, r.Method, path, r.RemoteAddr)
+	if p.CA() == nil {
+		switch path {
+		case "/", "/index.html", "/help", "/status", "/status.json":
+		default:
+			http.Error(w, "not found; TLS pass-through is enabled, no CA certificate is available", http.StatusNotFound)
+			return
+		}
+	}
 	switch path {
 	case "/", "/index.html", "/help":
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -94,9 +103,9 @@ func (p *Proxy) serveLocal(w http.ResponseWriter, r *http.Request, origin string
 		w.Header().Set("Content-Type", "application/x-x509-ca-cert")
 		w.Header().Set("Content-Disposition", `attachment; filename="cli-proxy-ca.crt"`)
 		w.Header().Set("Cache-Control", "no-store")
-		_, _ = w.Write(p.cfg.CA.CertPEM)
+		_, _ = w.Write(p.CA().CertPEM)
 	case "/cert.der", "/ca.der":
-		block, _ := pem.Decode(p.cfg.CA.CertPEM)
+		block, _ := pem.Decode(p.CA().CertPEM)
 		if block == nil {
 			http.Error(w, "corrupt CA", http.StatusInternalServerError)
 			return
@@ -110,6 +119,10 @@ func (p *Proxy) serveLocal(w http.ResponseWriter, r *http.Request, origin string
 		_, _ = w.Write([]byte(p.mobileconfig()))
 	case "/status", "/status.json":
 		active, total := p.Stats()
+		fingerprint := ""
+		if p.CA() != nil {
+			fingerprint = p.CA().Fingerprint()
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"proxy":          p.Addr(),
@@ -121,7 +134,7 @@ func (p *Proxy) serveLocal(w http.ResponseWriter, r *http.Request, origin string
 			"breakpoints":    p.cfg.Breaker.Len(),
 			"active_conns":   active,
 			"total_conns":    total,
-			"ca_fingerprint": p.cfg.CA.Fingerprint(),
+			"ca_fingerprint": fingerprint,
 		})
 	default:
 		http.Error(w, "not found\n\navailable: /  /ssl  /cert  /cert.der  /ca.mobileconfig  /status", http.StatusNotFound)
@@ -143,6 +156,9 @@ func (p *Proxy) BaseURL() string {
 
 // DeviceHint returns the short "point your phone here" instruction.
 func (p *Proxy) DeviceHint() string {
+	if p.tunnelOnly.Load() {
+		return fmt.Sprintf("proxy %s  |  TLS pass-through; no CA certificate required", p.DisplayAddr())
+	}
 	return fmt.Sprintf("proxy %s  |  cert %s/cert", p.DisplayAddr(), p.BaseURL())
 }
 
@@ -217,6 +233,23 @@ func (p *Proxy) CertSteps() string {
 	if len(ips) > 0 {
 		host = ips[0]
 	}
+	if p.tunnelOnly.Load() {
+		return fmt.Sprintf(`TLS pass-through
+
+HTTPS is forwarded through CONNECT without TLS interception.
+No CA certificate installation is required.
+Only CONNECT endpoints and byte counts are visible for HTTPS.
+Plain HTTP capture, rules and breakpoints still work.
+
+Configure your device's HTTP and HTTPS proxy:
+  Server: %s   Port: %s
+
+For programs on this computer:
+  export HTTP_PROXY=http://127.0.0.1:%s
+  export HTTPS_PROXY=http://127.0.0.1:%s
+  curl -x http://127.0.0.1:%s https://example.com
+`, host, port, port, port, port)
+	}
 	return fmt.Sprintf(certStepsText,
 		"http://"+LocalHostName, // 1 short base
 		p.BaseURL()+"/cert",     // 2 full certificate URL
@@ -227,6 +260,15 @@ func (p *Proxy) CertSteps() string {
 }
 
 func (p *Proxy) indexHTML() string {
+	if p.tunnelOnly.Load() {
+		return `<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>cli-proxy</title></head><body>
+<h1>cli-proxy</h1><p>Mode: tunnel</p>
+<p>Proxy address: <code>` + html.EscapeString(p.DisplayAddr()) + `</code></p>
+<pre>` + html.EscapeString(p.CertSteps()) + `</pre>
+</body></html>`
+	}
 	_, port, _ := net.SplitHostPort(p.Addr())
 	ips := LocalIPs()
 	var hosts strings.Builder
@@ -257,7 +299,7 @@ func (p *Proxy) indexHTML() string {
   <div>Proxy address: <code>` + p.DisplayAddr() + `</code></div>
   <div>LAN addresses: ` + hosts.String() + `</div>
   <div>Mode: <code>` + p.Mode() + `</code></div>
-  <div>CA: <code>` + p.cfg.CA.Summary() + `</code></div>
+  <div>CA: <code>` + p.CA().Summary() + `</code></div>
 </div>
 <h2>Short URL</h2>
 <div>Any device whose proxy already points here can use
@@ -279,7 +321,7 @@ curl -x ` + p.BaseURL() + ` --cacert cli-proxy-ca.crt https://example.com</pre>
 
 func (p *Proxy) mobileconfig() string {
 	uuid := "cli-proxy-ca-root"
-	block, _ := pem.Decode(p.cfg.CA.CertPEM)
+	block, _ := pem.Decode(p.CA().CertPEM)
 	der := ""
 	if block != nil {
 		der = base64Std(block.Bytes)

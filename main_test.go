@@ -1,6 +1,64 @@
 package main
 
-import "testing"
+import (
+	"bufio"
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestTunnelStartupWithoutCA(t *testing.T) {
+	if os.Getenv("CLI_PROXY_TEST_TUNNEL") == "1" {
+		os.Args = []string{"cli-proxy", "-tunnel", "-headless", "-addr", "127.0.0.1:0"}
+		main()
+		os.Exit(0)
+	}
+	for _, invalidDir := range []bool{false, true} {
+		name := "missing-directory"
+		if invalidDir {
+			name = "invalid-directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			home := filepath.Join(t.TempDir(), "proxy-home")
+			if invalidDir {
+				if err := os.WriteFile(home, []byte("not a directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestTunnelStartupWithoutCA$")
+			cmd.Env = append(os.Environ(), "CLI_PROXY_TEST_TUNNEL=1", "CLI_PROXY_HOME="+home)
+			out, err := cmd.StdoutPipe()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := cmd.Start(); err != nil {
+				t.Fatal(err)
+			}
+			defer func() {
+				_ = cmd.Process.Kill()
+				_ = cmd.Wait()
+			}()
+			scanner := bufio.NewScanner(out)
+			if !scanner.Scan() || !strings.Contains(scanner.Text(), "(tunnel)") {
+				t.Fatalf("proxy did not start in tunnel mode: %q, %v", scanner.Text(), scanner.Err())
+			}
+			if !scanner.Scan() || !strings.Contains(scanner.Text(), "no CA certificate required") {
+				t.Fatalf("unexpected startup instructions: %q", scanner.Text())
+			}
+			if !invalidDir {
+				if _, err := os.Stat(home); !os.IsNotExist(err) {
+					t.Fatalf("tunnel startup created CA directory: %v", err)
+				}
+			}
+		})
+	}
+}
 
 func TestResolveAddr(t *testing.T) {
 	cases := []struct {

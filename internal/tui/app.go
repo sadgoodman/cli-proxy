@@ -757,6 +757,9 @@ func (a *App) handleGlobalKey(k term.Key) {
 		if k.Is("o") && !k.Ctrl {
 			a.openInBrowser()
 		}
+		if k.Is("m") && !k.Ctrl {
+			a.toggleTLSInterception()
+		}
 		if k.Is("p") && !k.Ctrl {
 			a.openPortPrompt()
 		}
@@ -1442,6 +1445,27 @@ func (a *App) toggleSystemProxy() {
 	a.status("system proxy -> "+a.sysProxy.Target()+" (restored when cli-proxy exits)", 1)
 }
 
+// toggleTLSInterception only affects new connections; existing sessions keep
+// their mode until the client reconnects.
+func (a *App) toggleTLSInterception() {
+	tunnel := a.proxy.Mode() != "tunnel"
+	if err := a.proxy.SetTunnelOnly(tunnel); err != nil {
+		a.status("cannot change TLS mode: "+err.Error(), 2)
+		return
+	}
+	a.certScroll = 0
+	if tunnel {
+		a.status("TLS interception OFF for new connections; reconnect clients to apply", 1)
+		return
+	}
+	if a.trust == nil {
+		authority := a.proxy.CA()
+		a.trust = trust.New(authority.CertPath(), authority.CommonName())
+	}
+	a.refreshTrust()
+	a.status("TLS interception ON for new connections; clients must trust the CA", 1)
+}
+
 // refreshTrust re-reads the operating system's trust state.
 func (a *App) refreshTrust() {
 	a.trustChecked = time.Now()
@@ -1493,6 +1517,10 @@ func (a *App) uninstallCert() {
 }
 
 func (a *App) certReady() bool {
+	if a.proxy.Mode() == "tunnel" {
+		a.status("TLS pass-through; no CA certificate required", 0)
+		return false
+	}
 	if a.trust == nil || !a.trust.Available() {
 		a.status("certificate installation is not available on this platform", 2)
 		return false

@@ -37,7 +37,7 @@ var hopHeaders = []string{
 // Config configures a Proxy instance.
 type Config struct {
 	Addr       string
-	TunnelOnly bool // never MITM, just pass CONNECT through
+	TunnelOnly bool // initially pass CONNECT through without MITM
 	MaxBody    int64
 	CA         *ca.CA
 	Store      *core.Store
@@ -67,6 +67,10 @@ type Proxy struct {
 	srv     *http.Server
 	conns   map[net.Conn]struct{}
 	started time.Time
+
+	modeMu     sync.Mutex
+	tunnelOnly atomic.Bool
+	authority  atomic.Pointer[ca.CA]
 
 	activeConns atomic.Int64
 	totalConns  atomic.Int64
@@ -106,11 +110,14 @@ func New(cfg Config) *Proxy {
 		ExpectContinueTimeout: 2 * time.Second,
 		DisableCompression:    true,
 	}
-	return &Proxy{
+	p := &Proxy{
 		cfg:       cfg,
 		transport: tr,
 		conns:     make(map[net.Conn]struct{}),
 	}
+	p.tunnelOnly.Store(cfg.TunnelOnly)
+	p.authority.Store(cfg.CA)
+	return p
 }
 
 // Start binds the listener and begins serving in the background.
@@ -259,7 +266,7 @@ func loadCABundle(path string) (*x509.CertPool, error) {
 }
 
 // CA exposes the certificate authority used for TLS interception.
-func (p *Proxy) CA() *ca.CA { return p.cfg.CA }
+func (p *Proxy) CA() *ca.CA { return p.authority.Load() }
 
 // CAPath returns the on-disk directory holding the CA material.
 func (p *Proxy) CAPath() string { return p.cfg.CAPath }
@@ -276,10 +283,35 @@ func (p *Proxy) Addr() string {
 
 // Mode returns the interception mode.
 func (p *Proxy) Mode() string {
-	if p.cfg.TunnelOnly {
+	if p.tunnelOnly.Load() {
 		return "tunnel"
 	}
 	return "mitm"
+}
+
+// SetTunnelOnly changes how new CONNECT connections are handled. Existing
+// connections retain their mode. The CA is loaded only when interception is
+// first enabled and retained so active TLS sessions can finish normally.
+func (p *Proxy) SetTunnelOnly(enabled bool) error {
+	p.modeMu.Lock()
+	defer p.modeMu.Unlock()
+	if p.tunnelOnly.Load() == enabled {
+		return nil
+	}
+	if !enabled && p.CA() == nil {
+		dir := p.CAPath()
+		if dir == "" {
+			dir = ca.Dir()
+		}
+		authority, err := ca.Load(dir)
+		if err != nil {
+			return fmt.Errorf("certificate authority: %w", err)
+		}
+		p.authority.Store(authority)
+	}
+	p.tunnelOnly.Store(enabled)
+	p.cfg.Log.Addf("proxy mode changed to %s for new connections", p.Mode())
+	return nil
 }
 
 // Started returns the start time.
@@ -398,6 +430,12 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		host = net.JoinHostPort(host, "443")
 	}
 
+	// Opaque tunnels must also support protocols where the server speaks first.
+	if p.tunnelOnly.Load() {
+		p.tunnel(conn, brw.Reader, host, r, false)
+		return
+	}
+
 	// Acknowledge the tunnel before doing anything else.
 	if _, err := conn.Write([]byte("HTTP/1.1 200 Connection Established\r\n\r\n")); err != nil {
 		_ = conn.Close()
@@ -412,8 +450,8 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if p.cfg.TunnelOnly || first[0] != 0x16 { // 0x16 = TLS handshake record
-		p.tunnel(conn, brw.Reader, host, r)
+	if first[0] != 0x16 { // 0x16 = TLS handshake record
+		p.tunnel(conn, brw.Reader, host, r, true)
 		return
 	}
 
@@ -421,7 +459,8 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 }
 
 // tunnel blindly forwards bytes in both directions (non-TLS or tunnel mode).
-func (p *Proxy) tunnel(client net.Conn, buffered *bufio.Reader, host string, r *http.Request) {
+func (p *Proxy) tunnel(client net.Conn, buffered *bufio.Reader, host string, r *http.Request, acknowledged bool) {
+	defer client.Close()
 	start := time.Now()
 	flow := p.cfg.Store.Add(&core.Flow{
 		Start:      start,
@@ -441,19 +480,33 @@ func (p *Proxy) tunnel(client net.Conn, buffered *bufio.Reader, host string, r *
 	if err != nil {
 		p.finishFlow(flow.ID, func(f *core.Flow) {
 			f.State = core.StateError
+			f.Status = http.StatusBadGateway
 			f.Err = err.Error()
 			f.End = time.Now()
 			f.Duration = f.End.Sub(f.Start)
 		})
-		_ = client.Close()
+		if !acknowledged {
+			_, _ = io.WriteString(client, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		}
 		return
 	}
 	defer upstream.Close()
 
+	if !acknowledged {
+		if _, err := io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
+			p.finishFlow(flow.ID, func(f *core.Flow) {
+				f.State = core.StateError
+				f.Err = err.Error()
+				f.End = time.Now()
+				f.Duration = f.End.Sub(f.Start)
+			})
+			return
+		}
+	}
+
 	p.finishFlow(flow.ID, func(f *core.Flow) {
 		f.Status = 200
 		f.Reason = "Connection Established"
-		f.AddTag("tls")
 	})
 
 	var in, out atomic.Int64
@@ -502,7 +555,7 @@ func (p *Proxy) mitm(client net.Conn, buffered *bufio.Reader, host string, r *ht
 			if name == "" {
 				name = host
 			}
-			return p.cfg.CA.Leaf(name)
+			return p.CA().Leaf(name)
 		},
 	}
 	tlsConn := tls.Server(&bufferedConn{Conn: client, r: buffered}, tlsCfg)

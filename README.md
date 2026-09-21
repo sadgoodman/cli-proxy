@@ -93,6 +93,26 @@ git clone https://github.com/sadgoodman/cli-proxy.git
 cd cli-proxy && make build && ./cli-proxy
 ```
 
+## Proxy without TLS interception
+
+```sh
+./cli-proxy -tunnel                 # terminal UI
+./cli-proxy -tunnel -headless       # no UI
+./cli-proxy -tunnel -system-proxy   # also enable the system proxy
+curl -x http://127.0.0.1:8080 https://example.com
+```
+
+No CA certificate is created or required. HTTPS passes through CONNECT without
+decryption: clients see the original server certificate, and only connection
+endpoints and byte counts are recorded. Rules and breakpoints do not apply to
+HTTPS contents. Plain HTTP capture and editing remain available. TLS interception
+is still the default when `-tunnel` is omitted.
+
+To switch while running, open **Cert** (`4`) and press `m` or click
+**TLS off / TLS on**. Changes apply to new connections; reconnect existing
+clients to use the new mode. Enabling interception creates the CA if needed
+but does not automatically install it.
+
 ## Documentation
 
 The full reference — every flag, the rule DSL, filter syntax, key bindings,
