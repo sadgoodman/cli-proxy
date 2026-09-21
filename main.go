@@ -23,7 +23,7 @@ import (
 	"cliproxy/internal/tui"
 )
 
-const version = "0.1.2"
+const version = "0.1.3"
 
 func main() {
 	home := ca.Dir()
@@ -31,7 +31,7 @@ func main() {
 	var (
 		addr        = flag.String("addr", "0.0.0.0:8080", "address the proxy listens on (0.0.0.0 exposes it to your LAN for devices)")
 		port        = flag.Int("port", 0, "port to listen on; overrides the port part of -addr")
-		tunnel      = flag.Bool("tunnel", false, "do not intercept TLS; only tunnel CONNECT and show the endpoints")
+		tunnel      = flag.Bool("tunnel", false, "forward HTTPS through CONNECT without TLS interception or a CA certificate; plain HTTP capture stays enabled")
 		caDir       = flag.String("ca-dir", home, "directory holding the CA certificate and key")
 		rulesPath   = flag.String("rules", filepath.Join(home, "rules.json"), "rule file (JSON), loaded at start and saved on every change")
 		filtersPath = flag.String("filters", filepath.Join(home, "filters.json"), "file holding the saved display filters")
@@ -61,9 +61,14 @@ func main() {
 		fatal("%v", err)
 	}
 
-	authority, err := ca.Load(*caDir)
-	if err != nil {
-		fatal("certificate authority: %v", err)
+	var authority *ca.CA
+	var trustMgr *trust.Manager
+	if !*tunnel || *installCert || *removeCert {
+		authority, err = ca.Load(*caDir)
+		if err != nil {
+			fatal("certificate authority: %v", err)
+		}
+		trustMgr = trust.New(authority.CertPath(), authority.CommonName())
 	}
 
 	store := core.NewStore(*flowLimit)
@@ -85,7 +90,6 @@ func main() {
 	}
 
 	// Certificate installation is a standalone action; do it and stop.
-	trustMgr := trust.New(authority.CertPath(), authority.CommonName())
 	if *installCert || *removeCert {
 		if err := certAction(trustMgr, *installCert, *certSystem); err != nil {
 			fatal("%v", err)
@@ -149,6 +153,10 @@ func main() {
 	interactive := !*headless && term.IsTerminal(os.Stdin) && term.IsTerminal(os.Stdout)
 	if interactive {
 		printBanner(px, authority, *caDir, *rulesPath, *filtersPath, sysCtrl)
+		var uiTrust tui.CertTrust
+		if trustMgr != nil {
+			uiTrust = trustMgr
+		}
 		err := tui.Run(tui.Config{
 			Proxy:       px,
 			Store:       store,
@@ -158,7 +166,7 @@ func main() {
 			Log:         elog,
 			Version:     version,
 			SystemProxy: sysCtrl,
-			Trust:       trustMgr,
+			Trust:       uiTrust,
 			Filters:     filterset,
 			Stop:        stop,
 		})
@@ -278,8 +286,12 @@ func printBanner(px *proxy.Proxy, authority *ca.CA, caDir, rulesPath, filtersPat
 	for _, ip := range proxy.LocalIPs() {
 		fmt.Fprintf(&b, "  ├ devices use    %s\n", ip)
 	}
-	fmt.Fprintf(&b, "  ├ certificate    %s\n", caDir)
-	fmt.Fprintf(&b, "  ├ install from   %s/cert\n", px.BaseURL())
+	if authority != nil {
+		fmt.Fprintf(&b, "  ├ certificate    %s\n", caDir)
+		fmt.Fprintf(&b, "  ├ install from   %s/cert\n", px.BaseURL())
+	} else {
+		fmt.Fprintln(&b, "  ├ TLS            pass-through; no CA certificate required")
+	}
 	fmt.Fprintf(&b, "  ├ rules          %s\n", rulesPath)
 	fmt.Fprintf(&b, "  ├ filters        %s\n", filtersPath)
 	if sysCtrl.Active() {
@@ -297,7 +309,11 @@ func runHeadless(px *proxy.Proxy, store *core.Store, opts *core.Options, breaker
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 
 	fmt.Printf("cli-proxy %s headless — listening on %s (%s)\n", version, px.DisplayAddr(), px.Mode())
-	fmt.Printf("install the CA from %s/cert\n", px.BaseURL())
+	if px.CA() != nil {
+		fmt.Printf("install the CA from %s/cert\n", px.BaseURL())
+	} else {
+		fmt.Println("TLS pass-through; no CA certificate required")
+	}
 	fmt.Printf("%-6s %-8s %-7s %-28s %-9s %s\n", "id", "time", "method", "host", "status", "url")
 
 	seen := map[int64]bool{}

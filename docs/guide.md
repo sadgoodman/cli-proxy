@@ -161,6 +161,31 @@ Checking it from the same machine:
 curl -x http://127.0.0.1:8080 --cacert ~/.cli-proxy/ca.pem https://example.com
 ```
 
+### Proxy without SSL/TLS interception
+
+Run `./cli-proxy -tunnel`, or `./cli-proxy -tunnel -headless` without the TUI.
+This mode does not load or generate a CA, and clients need no proxy certificate.
+To check it:
+
+```sh
+curl -x http://127.0.0.1:8080 https://example.com
+```
+
+HTTPS passes through an opaque CONNECT tunnel with the original server certificate.
+Only endpoints and byte counts are visible, not HTTPS URL paths, headers or bodies.
+Rules and breakpoints do not apply inside tunnels. Plain HTTP works as before.
+You can combine `-tunnel` with `-system-proxy`. Standalone `-install-cert` and
+`-uninstall-cert` commands still perform their explicit certificate action even
+when combined with `-tunnel`.
+
+In the TUI, open **Cert** (`4`) and press `m` or click **TLS off / TLS on**.
+The header (`MITM` / `TUNNEL`) and Cert view show the current mode. Changes
+affect new connections only; existing connections retain their mode until
+the client reconnects. Enabling interception loads or creates the CA, while
+trust-store installation remains a separate action. If loading the CA fails,
+the proxy stays in tunnel mode. The selection lasts for the current run;
+the next startup uses the `-tunnel` flag again.
+
 ## Changing the port
 
 You can set the port with a flag, or change it right in the running interface:

@@ -24,6 +24,73 @@ func newTestApp(t *testing.T) *App {
 	return newTestAppAt(t, "127.0.0.1:8080")
 }
 
+func TestTunnelCertViewWithoutCA(t *testing.T) {
+	a := newTestApp(t)
+	a.proxy = proxy.New(proxy.Config{
+		Addr: "127.0.0.1:8080", TunnelOnly: true,
+		Store: a.store, Rules: a.ruleset, Breaker: a.brk, Opts: a.opts,
+	})
+	a.view = ViewCert
+	a.render()
+	var rendered strings.Builder
+	for y := 0; y < a.H; y++ {
+		rendered.WriteString(rowText(a.screen, y))
+	}
+	if !strings.Contains(rendered.String(), "No CA certificate installation is required") {
+		t.Fatal("tunnel certificate view missing pass-through instructions")
+	}
+	if strings.Contains(rendered.String(), "install cert") {
+		t.Fatal("tunnel view offers certificate installation")
+	}
+	if a.certReady() {
+		t.Fatal("certificate operations should be disabled in tunnel mode")
+	}
+}
+
+func TestTLSModeToggleFromCertView(t *testing.T) {
+	a := newTestApp(t)
+	fake := &fakeTrust{available: true}
+	a.trust = fake
+	a.view = ViewCert
+	press(a, term.Key{Rune: 'm'})
+	if a.proxy.Mode() != "tunnel" {
+		t.Fatal("m did not disable TLS interception")
+	}
+	a.render()
+	clicked := false
+	for _, button := range a.lay.buttons {
+		if button.Key == "m" && button.Label == "TLS on" {
+			a.handleMouse(term.Mouse{X: button.X, Y: button.row, Press: true})
+			clicked = true
+			break
+		}
+	}
+	if !clicked || a.proxy.Mode() != "mitm" {
+		t.Fatal("button did not enable TLS interception")
+	}
+	if len(fake.installs) != 0 || fake.removes != 0 {
+		t.Fatal("switching modes must not change the system trust store")
+	}
+}
+
+func TestTLSModeToggleInitializesCA(t *testing.T) {
+	a := newTestApp(t)
+	a.proxy = proxy.New(proxy.Config{
+		Addr: "127.0.0.1:8080", TunnelOnly: true, CAPath: t.TempDir(),
+		Store: a.store, Rules: a.ruleset, Breaker: a.brk, Opts: a.opts,
+	})
+	a.view = ViewCert
+	press(a, term.Key{Rune: 'm'})
+	if a.proxy.Mode() != "mitm" || a.proxy.CA() == nil || a.trust == nil {
+		t.Fatal("enabling interception did not initialize certificate support")
+	}
+	a.render()
+	press(a, term.Key{Rune: 'm'})
+	if a.proxy.Mode() != "tunnel" {
+		t.Fatal("could not return to tunnel mode")
+	}
+}
+
 func newTestAppAt(t *testing.T, addr string) *App {
 	t.Helper()
 	authority, err := ca.Load(t.TempDir())

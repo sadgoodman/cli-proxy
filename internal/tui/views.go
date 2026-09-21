@@ -1216,6 +1216,25 @@ func (a *App) renderCert(y, h int) {
 		return
 	}
 
+	if a.proxy.Mode() == "tunnel" {
+		a.lay.certTabs = nil
+		lines := []tline{
+			tl("TLS interception OFF  [m] enable", t.Accent),
+			tl("New connections only; reconnect clients after switching.", t.Dim),
+			tl("proxy "+a.proxy.DisplayAddr(), t.Accent), tl("", t.Base),
+		}
+		for _, line := range strings.Split(a.proxy.CertSteps(), "\n") {
+			lines = append(lines, tl(line, t.Base))
+		}
+		sysState := "off"
+		if a.sysProxy != nil && a.sysProxy.Active() {
+			sysState = "on -> " + a.sysProxy.Target()
+		}
+		lines = append(lines, tl("System proxy: "+sysState+"  [s] toggle", t.Accent))
+		a.drawWrapped(rect{X: innerX, Y: innerY, W: innerW, H: innerH}, lines, a.certScroll)
+		return
+	}
+
 	wide := innerW >= 96
 	leftW := innerW
 	rightW := 0
@@ -1246,6 +1265,9 @@ func (a *App) renderCert(y, h int) {
 
 	// ---- left: authority and status ---------------------------------------
 	left := []tline{
+		tl("TLS interception ON  [m] disable", t.Accent),
+		tl("New connections only; reconnect clients.", t.Dim),
+		tl("", t.Base),
 		tl("authority", Style{Fg: 81, Bold: true, Underline: true}),
 		tl("Subject  "+cert.Cert.Subject.String(), t.Base),
 		tl("Expires  "+cert.Cert.NotAfter.Format("2006-01-02"), t.Base),
@@ -1435,6 +1457,7 @@ func helpSections() []helpSection {
 			kv("c", "remove every rule"),
 		}},
 		{"Certificate", []helpRow{
+			kv("m", "toggle TLS interception for new connections"),
 			kv("i / I / u", "install for this user / all / remove"),
 			kv("s", "toggle the system proxy (restored on exit)"),
 			kv("t", "cycle the instruction tab"),
@@ -1700,7 +1723,18 @@ func (a *App) currentButtons() []button {
 			{Label: "quit", Key: "q", Action: func() { a.quit = true }},
 		}
 	case ViewCert:
+		if a.proxy.Mode() == "tunnel" {
+			return []button{
+				{Label: "TLS on", Key: "m", Action: a.toggleTLSInterception},
+				{Label: "sys-proxy", Key: "s", Action: a.toggleSystemProxy},
+				{Label: "browser", Key: "o", Action: a.openInBrowser},
+				{Label: "port", Key: "p", Action: a.openPortPrompt},
+				{Label: "help", Key: "?", Action: func() { a.prevView = a.view; a.view = ViewHelp }},
+				{Label: "quit", Key: "q", Action: func() { a.quit = true }},
+			}
+		}
 		return []button{
+			{Label: "TLS off", Key: "m", Action: a.toggleTLSInterception},
 			{Label: "install cert", Key: "i", Action: func() { a.installCert(false) }},
 			{Label: "system-wide", Key: "I", Action: func() { a.installCert(true) }},
 			{Label: "remove cert", Key: "u", Action: a.uninstallCert},
